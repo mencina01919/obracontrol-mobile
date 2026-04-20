@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { api } from "@/lib/api";
 import { COLORS } from "@/lib/constants";
+import SolicitarCorreccionModal from "@/components/SolicitarCorreccionModal";
 
 type MarcacionTipo = "ENTRADA" | "INICIO_COLACION" | "FIN_COLACION" | "SALIDA";
 
@@ -68,6 +69,7 @@ export default function AsistenciaScreen() {
   const [loading, setLoading] = useState(true);
   const [marcando, setMarcando] = useState<MarcacionTipo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [correccionRegistro, setCorreccionRegistro] = useState<{ id: string; fecha: string } | null>(null);
 
   const esHoy = mesYear === now.getFullYear() && mesMonth === now.getMonth();
 
@@ -234,10 +236,24 @@ export default function AsistenciaScreen() {
                     </View>
                   ))}
                 </View>
+                <TouchableOpacity
+                  style={styles.correccionBtn}
+                  onPress={() => setCorreccionRegistro({ id: item.id, fecha: item.fecha })}
+                >
+                  <Ionicons name="create-outline" size={13} color={COLORS.textMuted} />
+                  <Text style={styles.correccionBtnText}>Solicitar corrección</Text>
+                </TouchableOpacity>
               </View>
             ))
       }
     </ScrollView>
+
+      <SolicitarCorreccionModal
+        registroId={correccionRegistro?.id ?? null}
+        fecha={correccionRegistro?.fecha ?? null}
+        onClose={() => setCorreccionRegistro(null)}
+        onEnviado={() => { setCorreccionRegistro(null); onRefresh(); }}
+      />
   );
 }
 
@@ -308,4 +324,10 @@ const styles = StyleSheet.create({
   marcaTick: { alignItems: "center", gap: 3 },
   marcaLabel: { fontSize: 10, color: COLORS.textMuted, fontWeight: "600" },
   marcaHora: { fontSize: 13, fontWeight: "700" },
+  correccionBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    alignSelf: "flex-end", paddingVertical: 4, paddingHorizontal: 8,
+    borderRadius: 8, borderWidth: 1, borderColor: COLORS.border,
+  },
+  correccionBtnText: { fontSize: 11, color: COLORS.textMuted, fontWeight: "600" },
 });

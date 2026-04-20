@@ -41,6 +41,12 @@ export const api = {
       const qs = params.toString();
       return request<{ registroHoy: unknown; historial: unknown[]; fechaHoy: string }>(`/asistencia${qs ? `?${qs}` : ""}`);
     },
+    solicitarCorreccion: (body: { registroId: string; campo: string; valorNuevo: string; motivo: string }) =>
+      request<{ ok: boolean; solicitudId: string }>("/asistencia/correcciones", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+
     marcar: (tipo: "ENTRADA" | "INICIO_COLACION" | "FIN_COLACION" | "SALIDA", lat?: number, lng?: number) =>
       request<{ ok: boolean; registro: unknown; marcacion: { id: string; hashRegistro: string } }>("/asistencia", {
         method: "POST",
