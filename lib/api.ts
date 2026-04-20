@@ -1,5 +1,12 @@
+import Constants from "expo-constants";
 import { getToken } from "./auth";
 import { API_BASE } from "./constants";
+
+const DISPOSITIVO_ID: string =
+  Constants.easConfig?.runtimeVersion ??
+  Constants.expoConfig?.extra?.deviceId ??
+  Constants.installationId ??
+  "unknown";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = await getToken();
@@ -35,9 +42,9 @@ export const api = {
       return request<{ registroHoy: unknown; historial: unknown[]; fechaHoy: string }>(`/asistencia${qs ? `?${qs}` : ""}`);
     },
     marcar: (tipo: "ENTRADA" | "INICIO_COLACION" | "FIN_COLACION" | "SALIDA", lat?: number, lng?: number) =>
-      request<{ ok: boolean; registro: unknown }>("/asistencia", {
+      request<{ ok: boolean; registro: unknown; marcacion: { id: string; hashRegistro: string } }>("/asistencia", {
         method: "POST",
-        body: JSON.stringify({ tipo, lat, lng }),
+        body: JSON.stringify({ tipo, lat, lng, dispositivoId: DISPOSITIVO_ID }),
       }),
   },
 
