@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, Alert, RefreshControl,
@@ -6,6 +6,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
+import * as Notifications from "expo-notifications";
 import { api } from "@/lib/api";
 import { COLORS } from "@/lib/constants";
 import SolicitarCorreccionModal from "@/components/SolicitarCorreccionModal";
@@ -45,10 +46,6 @@ const MARCACIONES: {
   { tipo: "SALIDA",          label: "Salida",          icon: "log-out-outline",          color: COLORS.danger,  field: "salida" },
 ];
 
-function mesKey(year: number, month: number) {
-  return `${year}-${String(month + 1).padStart(2, "0")}`;
-}
-
 function mesLabel(year: number, month: number) {
   return new Date(year, month, 1).toLocaleDateString("es-CL", { month: "long", year: "numeric" });
 }
@@ -60,6 +57,14 @@ function rangoMes(year: number, month: number) {
   return { from, to };
 }
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
 export default function AsistenciaScreen() {
   const now = new Date();
   const [mesYear, setMesYear] = useState(now.getFullYear());
@@ -70,14 +75,38 @@ export default function AsistenciaScreen() {
   const [marcando, setMarcando] = useState<MarcacionTipo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [correccionRegistro, setCorreccionRegistro] = useState<{ id: string; fecha: string } | null>(null);
+  const [mesCerrado, setMesCerrado] = useState<boolean>(false);
+  const [cerrando, setCerrando] = useState(false);
 
   const esHoy = mesYear === now.getFullYear() && mesMonth === now.getMonth();
 
+  // Registrar push token al montar (silencioso, no critico)
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status === "granted") {
+          const tokenData = await Notifications.getExpoPushTokenAsync();
+          await api.pushToken(tokenData.data).catch(() => {});
+        }
+      } catch {
+        // Push notifications opcional, no interrumpir
+      }
+    })();
+  }, []);
+
   async function cargar(year = mesYear, month = mesMonth) {
     const { from, to } = rangoMes(year, month);
-    const data = await api.asistencia.get(from, to);
-    setRegistroHoy(esHoy ? data.registroHoy as RegistroHoy | null : null);
+    const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+    const [data, cierreData] = await Promise.all([
+      api.asistencia.get(from, to),
+      !isCurrentMonth
+        ? api.asistencia.estadoCierre(month + 1, year).catch(() => ({ cerrado: false, confirmedAt: null }))
+        : Promise.resolve({ cerrado: false, confirmedAt: null }),
+    ]);
+    setRegistroHoy(isCurrentMonth ? data.registroHoy as RegistroHoy | null : null);
     setHistorial(data.historial as HistorialItem[]);
+    setMesCerrado(cierreData.cerrado);
   }
 
   useFocusEffect(
@@ -123,6 +152,31 @@ export default function AsistenciaScreen() {
     } finally {
       setMarcando(null);
     }
+  }
+
+  async function handleCerrarMes() {
+    Alert.alert(
+      "Confirmar asistencia",
+      `¿Estás de acuerdo con los registros de asistencia de ${mesLabel(mesYear, mesMonth)}? Esta acción queda registrada.`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Confirmar",
+          onPress: async () => {
+            setCerrando(true);
+            try {
+              await api.asistencia.cerrarMes(mesMonth + 1, mesYear);
+              setMesCerrado(true);
+              Alert.alert("Confirmado", `Tu asistencia de ${mesLabel(mesYear, mesMonth)} ha sido confirmada.`);
+            } catch (e: unknown) {
+              Alert.alert("Error", e instanceof Error ? e.message : "Error al confirmar");
+            } finally {
+              setCerrando(false);
+            }
+          },
+        },
+      ]
+    );
   }
 
   function formatHora(iso: string | null) {
@@ -203,6 +257,27 @@ export default function AsistenciaScreen() {
         </View>
       )}
 
+      {/* Confirmar mes (meses pasados) */}
+      {!loading && !esHoy && historial.length > 0 && (
+        <TouchableOpacity
+          style={[styles.cerrarMesBtn, mesCerrado && styles.cerrarMesBtnDone]}
+          onPress={mesCerrado ? undefined : handleCerrarMes}
+          disabled={mesCerrado || cerrando}
+        >
+          {cerrando
+            ? <ActivityIndicator color={mesCerrado ? COLORS.success : COLORS.surface} size="small" />
+            : <Ionicons
+                name={mesCerrado ? "checkmark-circle" : "checkmark-circle-outline"}
+                size={18}
+                color={mesCerrado ? COLORS.success : COLORS.surface}
+              />
+          }
+          <Text style={[styles.cerrarMesBtnText, mesCerrado && styles.cerrarMesBtnTextDone]}>
+            {mesCerrado ? "Asistencia confirmada" : "Confirmar mi asistencia del mes"}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* Historial */}
       {loading
         ? <ActivityIndicator color={COLORS.primary} style={{ marginTop: 32 }} />
@@ -246,7 +321,6 @@ export default function AsistenciaScreen() {
               </View>
             ))
       }
-    </ScrollView>
 
       <SolicitarCorreccionModal
         registroId={correccionRegistro?.id ?? null}
@@ -254,13 +328,13 @@ export default function AsistenciaScreen() {
         onClose={() => setCorreccionRegistro(null)}
         onEnviado={() => { setCorreccionRegistro(null); onRefresh(); }}
       />
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   content: { padding: 16, paddingBottom: 32 },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
   sectionTitle: { fontSize: 15, fontWeight: "700", color: COLORS.textPrimary, marginBottom: 12 },
   marcacionesGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 24 },
   marcacionCard: {
@@ -292,7 +366,7 @@ const styles = StyleSheet.create({
   },
   mesBtn: { padding: 8 },
   mesLabel: { fontSize: 15, fontWeight: "700", color: COLORS.textPrimary, textTransform: "capitalize" },
-  resumenRow: { flexDirection: "row", gap: 12, marginBottom: 16 },
+  resumenRow: { flexDirection: "row", gap: 12, marginBottom: 12 },
   resumenCard: {
     flex: 1,
     backgroundColor: COLORS.surface,
@@ -305,6 +379,23 @@ const styles = StyleSheet.create({
   },
   resumenNum: { fontSize: 22, fontWeight: "800", color: COLORS.primary },
   resumenLabel: { fontSize: 12, color: COLORS.textSecondary },
+  cerrarMesBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: COLORS.primary,
+    borderRadius: 14,
+    paddingVertical: 14,
+    marginBottom: 16,
+  },
+  cerrarMesBtnDone: {
+    backgroundColor: `${COLORS.success}18`,
+    borderWidth: 1,
+    borderColor: COLORS.success,
+  },
+  cerrarMesBtnText: { fontSize: 14, fontWeight: "700", color: COLORS.surface },
+  cerrarMesBtnTextDone: { color: COLORS.success },
   empty: { alignItems: "center", paddingTop: 40, gap: 10 },
   emptyText: { color: COLORS.textMuted, fontSize: 14 },
   historialCard: {

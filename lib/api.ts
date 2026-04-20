@@ -52,7 +52,22 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ tipo, lat, lng, dispositivoId: DISPOSITIVO_ID }),
       }),
+
+    cerrarMes: (mes: number, anio: number) =>
+      request<{ ok: boolean; cierreId: string; hashCierre: string }>("/asistencia/cerrar-mes", {
+        method: "POST",
+        body: JSON.stringify({ mes, anio }),
+      }),
+
+    estadoCierre: (mes: number, anio: number) =>
+      request<{ cerrado: boolean; confirmedAt: string | null }>(`/asistencia/cerrar-mes?mes=${mes}&anio=${anio}`),
   },
+
+  pushToken: (token: string) =>
+    request<{ ok: boolean }>("/push-token", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
 
   documentos: (tipo?: string) =>
     request<{ documentos: unknown[] }>(`/documentos${tipo ? `?tipo=${tipo}` : ""}`),
